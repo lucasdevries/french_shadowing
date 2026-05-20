@@ -16,7 +16,7 @@ RESET  = "\033[0m"
 BOLD   = "\033[1m"
 DIM    = "\033[2m"
 CYAN   = "\033[96m"
-YELLOW = "\033[93m"
+BLUE   = "\033[34m"
 GREEN  = "\033[92m"
 GRAY   = "\033[90m"
 MAGENTA = "\033[95m"
@@ -58,6 +58,13 @@ def load_pairs():
     return pairs
 
 
+def group_by_lesson(all_pairs):
+    lessons = {}
+    for fr, nl, source in all_pairs:
+        lessons.setdefault(source, []).append((fr, nl, source))
+    return [(source, lessons[source]) for source in sorted(lessons)]
+
+
 def getch():
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
@@ -96,7 +103,7 @@ def draw(fr, nl, source, index, total, mode_label, mode_color):
     print()
     print(f"  {GRAY}Modus: {mode_color}{BOLD}{mode_label}{RESET}   {GRAY}│  Bron: {source[:WIDTH - 22]}{RESET}")
     print()
-    print(f"  {BOLD}{YELLOW}Frans:{RESET}")
+    print(f"  {BOLD}{BLUE}Frans:{RESET}")
     print()
     for line in wrap_text(fr):
         print(f"  {BOLD}{line}{RESET}")
@@ -114,7 +121,7 @@ def draw(fr, nl, source, index, total, mode_label, mode_color):
     print()
 
 
-def draw_menu(total_new, total_seen):
+def draw_menu(total_new, total_seen, total_lessons):
     clear()
     print()
     print(f"  {BOLD}{CYAN}{'SHADOWING OEFENING':^{WIDTH}}{RESET}")
@@ -124,11 +131,52 @@ def draw_menu(total_new, total_seen):
     print()
     print(f"  {BOLD}[1]{RESET}  {GREEN}Nieuwe zinnen{RESET}          {GRAY}({total_new} beschikbaar){RESET}")
     print(f"  {BOLD}[2]{RESET}  {MAGENTA}Al geziene zinnen{RESET}      {GRAY}({total_seen} beschikbaar){RESET}")
+    print(f"  {BOLD}[3]{RESET}  {BLUE}Volledige les{RESET}          {GRAY}({total_lessons} lessen){RESET}")
     print()
     print(f"  {DIM}{'─' * WIDTH}{RESET}")
     print()
     print(f"  {GRAY}{BOLD}[q]{RESET}{GRAY} afsluiten{RESET}")
     print()
+
+
+def draw_lesson_picker(lessons, seen):
+    clear()
+    print()
+    print(f"  {BOLD}{BLUE}{'KIES EEN LES':^{WIDTH}}{RESET}")
+    print(f"  {DIM}{'─' * WIDTH}{RESET}")
+    print()
+    for idx, (source, items) in enumerate(lessons, 1):
+        done = sum(1 for fr, _, _ in items if sentence_id(fr) in seen)
+        total = len(items)
+        mark = f"{GREEN}✓{RESET}" if done == total else f"{GRAY}·{RESET}"
+        title = source[:WIDTH - 14]
+        print(f"  {BOLD}[{idx:>2}]{RESET} {mark}  {title} {GRAY}({done}/{total}){RESET}")
+    print()
+    print(f"  {DIM}{'─' * WIDTH}{RESET}")
+    print()
+    print(f"  {GRAY}Typ een nummer + {BOLD}[Enter]{RESET}{GRAY}   {BOLD}[q]{RESET}{GRAY} terug{RESET}")
+    print()
+
+
+def read_number(max_value):
+    buf = ""
+    while True:
+        ch = getch()
+        if ch in ("q", "Q", "\x03"):
+            return None
+        if ch in ("\r", "\n"):
+            if buf and 1 <= int(buf) <= max_value:
+                return int(buf)
+            buf = ""
+            sys.stdout.write("\r\033[K  > ")
+            sys.stdout.flush()
+            continue
+        if ch == "\x7f":
+            buf = buf[:-1]
+        elif ch.isdigit():
+            buf += ch
+        sys.stdout.write(f"\r\033[K  > {buf}")
+        sys.stdout.flush()
 
 
 def main():
@@ -138,38 +186,54 @@ def main():
         sys.exit(1)
 
     seen = load_db()
+    lessons = group_by_lesson(all_pairs)
 
     new_pairs  = [(fr, nl, s) for fr, nl, s in all_pairs if sentence_id(fr) not in seen]
     seen_pairs = [(fr, nl, s) for fr, nl, s in all_pairs if sentence_id(fr) in seen]
 
-    draw_menu(len(new_pairs), len(seen_pairs))
+    draw_menu(len(new_pairs), len(seen_pairs), len(lessons))
 
+    full_lesson = False
     while True:
         ch = getch()
         if ch == "1":
             if not new_pairs:
                 clear()
-                print(f"\n  {YELLOW}Geen nieuwe zinnen meer! Probeer modus 2.{RESET}\n")
+                print(f"\n  {BLUE}Geen nieuwe zinnen meer! Probeer modus 2.{RESET}\n")
                 sys.exit(0)
-            pairs = new_pairs
+            pairs = list(new_pairs)
+            random.shuffle(pairs)
+            pairs = pairs[:SESSION]
             mode_label = "Nieuwe zinnen"
             mode_color = GREEN
             break
         elif ch == "2":
             if not seen_pairs:
                 clear()
-                print(f"\n  {YELLOW}Nog geen zinnen gezien. Start met modus 1.{RESET}\n")
+                print(f"\n  {BLUE}Nog geen zinnen gezien. Start met modus 1.{RESET}\n")
                 sys.exit(0)
-            pairs = seen_pairs
+            pairs = list(seen_pairs)
+            random.shuffle(pairs)
+            pairs = pairs[:SESSION]
             mode_label = "Herhaling"
             mode_color = MAGENTA
+            break
+        elif ch == "3":
+            draw_lesson_picker(lessons, seen)
+            choice = read_number(len(lessons))
+            if choice is None:
+                draw_menu(len(new_pairs), len(seen_pairs), len(lessons))
+                continue
+            source, pairs = lessons[choice - 1]
+            pairs = list(pairs)
+            mode_label = f"Les: {source[:WIDTH - 12]}"
+            mode_color = BLUE
+            full_lesson = True
             break
         elif ch in ("q", "Q", "\x03"):
             clear()
             sys.exit(0)
 
-    random.shuffle(pairs)
-    pairs = pairs[:SESSION]
     total = len(pairs)
 
     for i, (fr, nl, source) in enumerate(pairs, 1):
@@ -191,8 +255,11 @@ def main():
     print()
     print(f"  {BOLD}{GREEN}{'Goed gedaan!':^{WIDTH}}{RESET}")
     print()
-    print(f"  {CYAN}Je hebt de {total} zinnen van vandaag afgerond.{RESET}")
-    print(f"  {GRAY}Kom morgen terug voor de volgende sessie.{RESET}")
+    if full_lesson:
+        print(f"  {CYAN}Je hebt de hele les ({total} zinnen) afgerond.{RESET}")
+    else:
+        print(f"  {CYAN}Je hebt de {total} zinnen van vandaag afgerond.{RESET}")
+        print(f"  {GRAY}Kom morgen terug voor de volgende sessie.{RESET}")
     print()
 
 
