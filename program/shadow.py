@@ -20,7 +20,8 @@ YELLOW = "\033[93m"
 GREEN  = "\033[92m"
 GRAY   = "\033[90m"
 MAGENTA = "\033[95m"
-WIDTH  = 64
+WIDTH   = 64
+SESSION = 35
 
 
 def sentence_id(fr):
@@ -168,6 +169,7 @@ def main():
             sys.exit(0)
 
     random.shuffle(pairs)
+    pairs = pairs[:SESSION]
     total = len(pairs)
 
     for i, (fr, nl, source) in enumerate(pairs, 1):
@@ -182,11 +184,16 @@ def main():
                 break
             if ch in ("q", "Q", "\x03"):
                 clear()
-                print(f"\n  {CYAN}Tot ziens! Je hebt {i} zin(nen) geoefend.{RESET}\n")
+                print(f"\n  {CYAN}Tot ziens! Je hebt {i} van de {total} zinnen geoefend.{RESET}\n")
                 sys.exit(0)
 
     clear()
-    print(f"\n  {GREEN}{BOLD}Alle {total} zinnen gehad! Goed gedaan.{RESET}\n")
+    print()
+    print(f"  {BOLD}{GREEN}{'Goed gedaan!':^{WIDTH}}{RESET}")
+    print()
+    print(f"  {CYAN}Je hebt de {total} zinnen van vandaag afgerond.{RESET}")
+    print(f"  {GRAY}Kom morgen terug voor de volgende sessie.{RESET}")
+    print()
 
 
 if __name__ == "__main__":
